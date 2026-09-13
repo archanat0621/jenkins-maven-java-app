@@ -1,21 +1,35 @@
 pipeline {
     agent any
 
+    options {
+        timestamps()
+    }
+
+    tools {
+        jdk 'JDK21'
+        maven 'maven'
+    }
+
     environment {
-        GITHUB_CREDS = credentials('github-new-creds')
-        MAVEN_HOME   = tool name: 'maven'
-        PATH         = "${JAVA_HOME}\\bin;${PATH}"
+        GITHUB_CREDS = credentials('github-pat')
     }
 
     stages {
-
         stage('Checkout Code') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Build & Deploy') {
+        stage('Verify Tools') {
+            steps {
+                bat 'java -version'
+                bat 'mvn -version'
+                bat 'git --version'
+            }
+        }
+
+        stage('Build, Test and Publish') {
             steps {
                 configFileProvider([
                     configFile(
@@ -25,17 +39,10 @@ pipeline {
                 ]) {
                     bat '''
                         echo ========================================
-                        echo        BUILDING MAVEN PROJECT
+                        echo BUILDING AND TESTING MAVEN PROJECT
                         echo ========================================
 
-                        "%MAVEN_HOME%\\bin\\mvn.cmd" -s "%MAVEN_SETTINGS%" -B clean package
-
-                        echo.
-                        echo ========================================
-                        echo       DEPLOYING TO GITHUB PACKAGES
-                        echo ========================================
-
-                        "%MAVEN_HOME%\\bin\\mvn.cmd" -s "%MAVEN_SETTINGS%" -B deploy
+                        mvn -s "%MAVEN_SETTINGS%" -B clean deploy
                     '''
                 }
             }
@@ -43,12 +50,21 @@ pipeline {
     }
 
     post {
+        always {
+            junit testResults: 'target/surefire-reports/*.xml',
+                  allowEmptyResults: true
+
+            archiveArtifacts artifacts: 'target/*.war',
+                             fingerprint: true,
+                             allowEmptyArchive: true
+        }
+
         success {
-            echo "Build and deployment to GitHub Packages completed successfully."
+            echo 'Build and publication to GitHub Packages completed successfully.'
         }
 
         failure {
-            echo "Pipeline failed. Check the console output for details."
+            echo 'Pipeline failed. Check the console output for details.'
         }
     }
 }
